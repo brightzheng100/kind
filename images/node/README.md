@@ -3,12 +3,67 @@
 The node image is built programmatically, based on the [base image](../base).
 Please check out the design details [here][node-image.md].
 
+### Go Implementation
+
 See [`pkg/build/node/node.go`][pkg/build/node/node.go] for the golang implementation.
+
+#### Usage
+
+```sh
+$ kind build node-image --help
+Build the node image which contains Kubernetes build artifacts and other kind requirements
+
+Usage:
+  kind build node-image [flags]
+
+Flags:
+      --base-image string   name:tag of the base image to use for the build (default "kindest/base:v20200430-2c0eee40")
+  -h, --help                help for node-image
+      --image string        name:tag of the resulting image to be built (default "kindest/node:latest")
+      --kube-root string    path to the Kubernetes source directory (if empty, the path is autodetected)
+      --type string         build type, one of [bazel, docker] (default "docker")
+
+Global Flags:
+      --loglevel string   DEPRECATED: see -v instead
+  -q, --quiet             silence all stderr output
+  -v, --verbosity int32   info log verbosity
+```
+
+#### A Typical Flow
+
+```sh
+# cd to images/base folder
+
+# Build base image
+$ make quick
+
+# So the base image is built
+$ docker images kindest/base
+REPOSITORY          TAG                  IMAGE ID            CREATED             SIZE
+kindest/base        v20200625-bb24beca   cc7164c63e49        1 minutes ago       289MB
+
+# Check out Kubernetes code, by using `go get` or `git clone`
+git clone --single-branch --branch v1.18.3 --quiet \
+    https://github.com/kubernetes/kubernetes.git
+
+# Now build the node image
+$ kind build node-image -v 9 --type docker \
+  --kube-root ./kubernetes \
+  --base-image kindest/base:v20200614-bb24beca \
+  --image kindest/node:v1.18.3
+
+# Once it's built, check it out
+$ docker images kindest/node
+REPOSITORY          TAG                 IMAGE ID            CREATED             SIZE
+kindest/node        v1.18.3             474f53c8a6cc        5 minutes ago       1.35GB
+```
 
 [pkg/build/node/node.go]: ./../../pkg/build/node/node.go
 [node-image.md]: https://kind.sigs.k8s.io/docs/design/node-image
 
-Meanwhile, there is a simplified shell implementation in [build.sh](build.sh).
+### Bash Implementation
+
+Meanwhile, there is a Bash shell implementation in [build.sh](build.sh).
 
 Overall, there are 4 major steps:
 
@@ -36,7 +91,7 @@ Overall, there are 4 major steps:
 4. Docker commit to create a new image from the build container.
 
 
-### Usage
+#### Usage
 
 ```sh
 $ ./build.sh -h
@@ -51,7 +106,7 @@ Examples:
     ./build.sh -k v1.18.3 -b kindest/base:v20200614-bb24beca -i kindest/node:v1.18.3 -d ./_build_node_imag
 ```
 
-### A Typical Flow
+#### A Typical Flow
 
 ```sh
 # cd to images/node folder
@@ -72,7 +127,7 @@ $ docker images kindest/node
 REPOSITORY          TAG                 IMAGE ID            CREATED             SIZE
 kindest/node        v1.18.3             70f9369bf2b6        4 minutes ago       1.35GB
 
-# Let's spin up a mult-node kind cluster
+# Let's spin up a multi-node kind cluster
 $ echo "
 kind: Cluster
 apiVersion: kind.sigs.k8s.io/v1alpha3
@@ -100,11 +155,8 @@ nginx-f89759699-992sq   1/1     Running   0          25s
 ```
 
 > Note:
-
 > 1. Specifying the `-d <folder>` will host all artifacts in the specified folder which won't be cleaned up automatically, which is good for learning purposes;
-
 > 2. The upstream Kubernetes tuning parameters will still be respected, you can export them before running the `./build.sh`, following ones are embedded with defaults:
-
 ```sh
 export KUBE_VERBOSE=${KUBE_VERBOSE:-0}
 export KUBE_BUILD_HYPERKUBE=${KUBE_BUILD_HYPERKUBE:-n}
