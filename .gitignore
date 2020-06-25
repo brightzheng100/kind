@@ -1,3 +1,5 @@
+# any "private" stuff
+_*
 # build and test outputs
 /bin/
 /_output/
