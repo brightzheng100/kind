@@ -9,6 +9,7 @@ Usage: $(basename "$0") [OPTION]...
     -k <mandatory, Kubernetes version>          Kubernetes version, e.g. v1.18.3, to check out the Kubernetes code for building
     -b <mandatory, base image>                  the base image that node image will be built upon, e.g. kindest/base:v20200614-bb24beca
     -i <mandatory, built node image with tag>   the newly built node image with tag, e.g. kindest/node:v1.18.3
+    -t <optional, build tool>                   the build tool to be used: bazel, docker. Now supports only docker
     -d <optional, image build folder>           the folder to assemble the build artifacts. Once specified, the script will leave it undeleted
     -h                                          display this help and exit
 Examples:
@@ -25,11 +26,11 @@ clean_up () {
         echo -e -n "${symbol} Cleaning up ... "
         if [[ "${specified_folder}" == "false" ]]; then
             # clean up the folder
-            rm -rf ${build_node_image_folder} >/dev/null 2>&1 || true
+            rm -rf "${build_node_image_folder}" >/dev/null 2>&1 || true
         fi
         if [[ "${ARG}" == "0" ]]; then
             # clean up build container
-            docker rm -f ${build_container_id} >/dev/null 2>&1 || true
+            docker rm -f "${build_container_id}" >/dev/null 2>&1 || true
             echo "DONE!"
         else
             echo -e " As error occured, keep the container: ${build_container_id}"
@@ -55,8 +56,6 @@ function array_contains () {
 # constants
 # Colors
 COLOR_OFF='\033[0m'
-COLOR_RED='\x1B[0;31m'
-COLOR_CYAN='\x1B[0;36m'
 COLOR_GREEN='\x1B[0;32m'
 # Symbols
 SYMBOL_TICK=' \x1b[32m✓\x1b[0m'
@@ -69,11 +68,12 @@ SYMBOL_FAIL='\xE2\x9B\x94'
 kubernetes_version=""
 base_image=""
 node_image=""
+build_tool=""
 build_folder=""
 
 need_cleanup="false"
 
-while getopts "k:b:i:d:h" opt; do
+while getopts "k:b:i:d:t:h" opt; do
     case $opt in
         k)  kubernetes_version=$OPTARG
             ;;
@@ -82,6 +82,9 @@ while getopts "k:b:i:d:h" opt; do
         i)  node_image=$OPTARG
             ;;
         d)  build_folder=$OPTARG
+            ;;
+        t)  
+            build_tool="docker" # now docker only, ignoring the input
             ;;
         h)
             show_usage
@@ -95,7 +98,7 @@ while getopts "k:b:i:d:h" opt; do
 done
 
 if [ -z "$kubernetes_version" ] || [ -z "$base_image" ] || [ -z "$node_image" ]; then
-    echo "missing parameters..."
+    echo "missing mandatory parameters..."
     show_usage >&2
     exit 1
 fi
@@ -126,16 +129,16 @@ extra_required_images=("kindest/kindnetd:0.5.4" "rancher/local-path-provisioner:
 
 # Getting started
 echo -e "${SYMBOL_TICK} Started building node image ..."
-mkdir -p ${kind_node_image_build_folder}/bin
-mkdir -p ${kind_node_image_build_folder}/images
-mkdir -p ${kind_node_image_build_folder}/systemd
-mkdir -p ${kind_node_image_build_folder}/manifests
+mkdir -p "${kind_node_image_build_folder}/bin"
+mkdir -p "${kind_node_image_build_folder}/images"
+mkdir -p "${kind_node_image_build_folder}/systemd"
+mkdir -p "${kind_node_image_build_folder}/manifests"
 
 # Checkout Kubernetes and build it
 echo -e "${SYMBOL_TICK} Checking out ${COLOR_GREEN}Kubernetes ${kubernetes_version}${COLOR_OFF} ${SYMBOL_DELI}..."
-rm -rf ${build_node_image_folder}/kubernetes || true
-git clone --single-branch --branch ${kubernetes_version} --quiet \
-    https://github.com/kubernetes/kubernetes.git ${build_node_image_folder}/kubernetes >/dev/null
+rm -rf "${build_node_image_folder}/kubernetes" || true
+git clone --single-branch --branch "${kubernetes_version}" --quiet \
+    https://github.com/kubernetes/kubernetes.git "${build_node_image_folder}/kubernetes" >/dev/null
 
 # Building Kubernetes
 echo -e "${SYMBOL_TICK} Building ${COLOR_GREEN}Kubernetes ${kubernetes_version}${COLOR_OFF}, be patient please ..."
@@ -149,12 +152,12 @@ export GOFLAGS=${GOFLAGS:=-tags=providerless,dockerless}
 rm -rf _output || true
 echo -e "+++ Building Kubernetes binaries ..."
 # Build Kubernetes desired binaries in Docker container and rsync out to _output folder
-( cd ${build_node_image_folder}/kubernetes && ./build/run.sh make all WHAT="cmd/kubeadm cmd/kubectl cmd/kubelet" )
+( cd "${build_node_image_folder}/kubernetes" && ./build/run.sh make all WHAT="cmd/kubeadm cmd/kubectl cmd/kubelet" )
 # Build Kubernetes images in Docker container and rsync out to _output folder
 echo -e "+++ Building Kubernetes images ..."
-( cd ${build_node_image_folder}/kubernetes && make quick-release-images )
+( cd "${build_node_image_folder}/kubernetes" && make quick-release-images )
 # Capture the version info to _output folder
-( cd ${build_node_image_folder}/kubernetes && ./hack/print-workspace-status.sh | grep gitVersion | cut -d' ' -f2 | xargs echo > _output/version )
+( cd "${build_node_image_folder}/kubernetes" && ./hack/print-workspace-status.sh | grep gitVersion | cut -d' ' -f2 | xargs echo > _output/version )
 
 # Preparing bits for node image
 echo -e "${SYMBOL_TICK} Preparing ${COLOR_GREEN}artifacts${COLOR_OFF} for node image ..."
@@ -167,46 +170,46 @@ cp files/init.sh "${kind_node_image_build_folder}/"
 cp "${k8s_output_folder}/version" "${kind_node_image_build_folder}/"
 cp files/kind/systemd/kubelet.service "${kind_node_image_build_folder}/systemd/"
 cp files/etc/systemd/system/kubelet.service.d/10-kubeadm.conf "${kind_node_image_build_folder}/systemd/"
-cp files/kind/manifests/default-cni.yaml ${kind_node_image_build_folder}/manifests/
-cp files/kind/manifests/default-storage.yaml ${kind_node_image_build_folder}/manifests/
+cp files/kind/manifests/default-cni.yaml "${kind_node_image_build_folder}/manifests/"
+cp files/kind/manifests/default-storage.yaml "${kind_node_image_build_folder}/manifests/"
 
 # Building node image
-echo -e "${SYMBOL_TICK} Building node image in ${COLOR_GREEN}Docker container: ${build_container_id}${COLOR_OFF} ..."
+echo -e "${SYMBOL_TICK} Building node image in ${COLOR_GREEN}Docker container: ${build_container_id}${COLOR_OFF}${SYMBOL_PACK} ..."
 # PullIfNotPresent for the specified base_image
-if ! $( docker inspect --type=image "$base_image" >/dev/null ) ; then
+if ! docker inspect --type=image "$base_image" >/dev/null; then
     docker pull "$base_image"
 fi
 # Docker run the base image
 mount_point="$kind_node_image_build_folder"
 [[ ! "$kind_node_image_build_folder" == /* ]] && mount_point="$(pwd)/$kind_node_image_build_folder"
-docker run -d -v "${mount_point}:/build" --entrypoint=sleep --name=${build_container_id} "$base_image" infinity >/dev/null
+docker run -d -v "${mount_point}:/build" --entrypoint=sleep --name="${build_container_id}" "$base_image" infinity >/dev/null
 # Docker exec to setup tools
-docker exec ${build_container_id} bash -c "chmod +x /build/init.sh && /build/init.sh tools"
+docker exec "${build_container_id}" bash -c "chmod +x /build/init.sh && /build/init.sh tools"
 # Preparing all required images
 pause_image=""
-docker exec -it ${build_container_id} bash -c "kubeadm config images list --kubernetes-version \$(cat /build/version) > /build/images/required_images"
-printf "%s\n" "${extra_required_images[@]}" >> ${kind_node_image_build_folder}/images/required_images
-for image in $(cat ${kind_node_image_build_folder}/images/required_images); do
+docker exec -it "${build_container_id}" bash -c "kubeadm config images list --kubernetes-version \$(cat /build/version) > /build/images/required_images"
+printf "%s\n" "${extra_required_images[@]}" >> "${kind_node_image_build_folder}/images/required_images"
+while IFS= read -r image; do
     # format: k8s.gcr.io/kube-apiserver:v1.18.3
-    n=$( echo $image | cut -d':' -f1 | cut -d'/' -f2 )
+    n=$( echo "$image" | cut -d':' -f1 | cut -d'/' -f2 )
     is_in_built_images=$(array_contains "${n}" "${built_images[@]}")
     if [[ "${is_in_built_images}" == "true" ]]; then
         echo "+ copy image: ${n}.tar"
-        cp ${k8s_output_image_folder}/${n}.tar ${kind_node_image_build_folder}/images/
+        cp "${k8s_output_image_folder}/${n}.tar" "${kind_node_image_build_folder}/images/"
     else
         echo "+ docker pull image: ${image}"
-        docker pull $image >/dev/null
-        docker save -o ${kind_node_image_build_folder}/images/${n}.tar $image
+        docker pull "$image" >/dev/null
+        docker save -o "${kind_node_image_build_folder}/images/${n}.tar" "$image"
         if [[ "${image}" == *"pause"* ]]; then
             echo "+ the pause image is: ${image}"
             pause_image="${image}";
         fi
     fi
-done
+done < "${kind_node_image_build_folder}/images/required_images"
 # containerd config
-cat files/etc/containerd/config.toml | sed "s|SandboxImage|${pause_image}|g" > ${kind_node_image_build_folder}/manifests/config.toml
+cat files/etc/containerd/config.toml | sed "s|SandboxImage|${pause_image}|g" > "${kind_node_image_build_folder}/manifests/config.toml"
 # Docker exec to setup all others
-docker exec ${build_container_id} bash -c "/build/init.sh others"
+docker exec "${build_container_id}" bash -c "/build/init.sh others"
 # Save the image changes to a new image
-docker commit --change 'ENTRYPOINT [ "/usr/local/bin/entrypoint", "/sbin/init" ]' ${build_container_id} "${node_image}"
-echo -e "${SYMBOL_TICK} Image build completed: ${node_image} ${SYMBOL_BEER}"
+docker commit --change 'ENTRYPOINT [ "/usr/local/bin/entrypoint", "/sbin/init" ]' "${build_container_id}" "${node_image}"
+echo -e "${SYMBOL_TICK} Image build completed as ${node_image} ${SYMBOL_BEER}"

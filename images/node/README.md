@@ -99,11 +99,12 @@ Usage: build.sh [OPTION]...
     -k <mandatory, Kubernetes version>          Kubernetes version, e.g. v1.18.3, to check out the Kubernetes code for building
     -b <mandatory, base image>                  the base image that node image will be built upon, e.g. kindest/base:v20200614-bb24beca
     -i <mandatory, built node image with tag>   the newly built node image with tag, e.g. kindest/node:v1.18.3
+    -t <optional, build tool>                   the build tool to be used: bazel, docker. Now supports only docker
     -d <optional, image build folder>           the folder to assemble the build artifacts. Once specified, the script will leave it undeleted
     -h                                          display this help and exit
 Examples:
     ./build.sh -k v1.18.3 -b kindest/base:v20200614-bb24beca -i kindest/node:v1.18.3
-    ./build.sh -k v1.18.3 -b kindest/base:v20200614-bb24beca -i kindest/node:v1.18.3 -d ./_build_node_imag
+    ./build.sh -k v1.18.3 -b kindest/base:v20200614-bb24beca -i kindest/node:v1.18.3 -d ./_build_node_image
 ```
 
 #### A Typical Flow
@@ -163,4 +164,17 @@ export KUBE_BUILD_HYPERKUBE=${KUBE_BUILD_HYPERKUBE:-n}
 export KUBE_BUILD_CONFORMANCE=${KUBE_BUILD_CONFORMANCE:-n}
 export KUBE_BUILD_PLATFORMS=${KUBE_BUILD_PLATFORMS:-linux/amd64}
 export GOFLAGS=${GOFLAGS:=-tags=providerless,dockerless}
+```
+> 3. The brief logs (some are omitted) for your reference:
+```log
+ ✓ Started building node image ...
+ ✓ Checking out Kubernetes v1.18.3 🚚...
+...
+ ✓ Building Kubernetes v1.18.3, be patient please ...
+...
+ ✓ Preparing artifacts for node image ...
+ ✓ Building node image in Docker container: kind-build-20200626-091530🎁 ...
+...
+ ✓ Image build completed as kindest/node:v1.18.3 🍻
+ ✓ Cleaning up ... DONE!
 ```
